@@ -50,7 +50,7 @@ export default async function AdminPage() {
               </div>
               <p className="text-sm text-gray-700">{site.description}</p>
               <div className="text-xs text-gray-500">Submitted by {site.users?.username || site.users?.email}</div>
-              <ApproveButtons websiteId={site.id} />
+              <ApproveButtons websiteId={site.id} currentStatus={site.status} />
             </div>
           ))}
         </div>
