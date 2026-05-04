@@ -21,7 +21,7 @@ export async function generateClaimToken(websiteId: string) {
   return { token };
 }
 
-export async function verifyOwnership(websiteId: string) {
+export async function verifyOwnership(websiteId: string, method?: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Authentication required");
