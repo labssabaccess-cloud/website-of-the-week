@@ -1,15 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-interface Props {
-  params: { slug: string };
-}
+type Props = {
+  params: Promise<{ slug: string }>;
+};
 
 export default function ReviewPage({ params }: Props) {
-  const slug = params.slug;
+  const { slug } = use(params);
   const router = useRouter();
   const [sentiment, setSentiment] = useState<'pro' | 'con'>('pro');
   const [body, setBody] = useState('');
