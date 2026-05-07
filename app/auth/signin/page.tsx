@@ -1,17 +1,16 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-export default function SignInPage() {
+function SignInForm() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [githubLoading, setGithubLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -71,7 +70,6 @@ export default function SignInPage() {
             </div>
           ) : (
             <>
-              {/* GitHub */}
               <button
                 onClick={handleGitHub}
                 disabled={githubLoading || googleLoading}
@@ -82,7 +80,6 @@ export default function SignInPage() {
                 </svg>
                 {githubLoading ? 'Redirecting...' : 'Continue with GitHub'}
               </button>
-              {/* Google */}
               <button
                 onClick={handleGoogle}
                 disabled={googleLoading || githubLoading}
@@ -126,5 +123,17 @@ export default function SignInPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <SignInForm />
+    </Suspense>
   );
 }
