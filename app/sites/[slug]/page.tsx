@@ -14,13 +14,14 @@ const ACHIEVEMENT_META: Record<string, { icon: string; label: string; color: str
   community_fav: { icon: '❤️', label: 'Community Favourite', color: 'text-red-400' },
 };
 
-interface Props {
-  params: { slug: string };
-}
+type Props = {
+  params: Promise<{ slug: string }>;
+};
 
 export default async function SiteProfilePage({ params }: Props) {
+  const { slug: rawSlug } = await params;
   const supabase = await createClient();
-  const slug = decodeURIComponent(params.slug);
+  const slug = decodeURIComponent(rawSlug);
 
   // Fetch website data
   const { data: site } = await supabase
