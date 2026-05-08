@@ -1,32 +1,25 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
-import type { EmailOtpType } from "@supabase/supabase-js";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const token_hash = searchParams.get("token_hash");
-  const type = searchParams.get("type") as EmailOtpType | null;
+  const type = searchParams.get("type") as "signup" | "recovery" | "invite" | "magiclink" | "email_change" | null;
   const next = searchParams.get("next") ?? "/";
 
-  // Handle magic link / OTP (email)
+  const supabase = await createClient();
+
   if (token_hash && type) {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.verifyOtp({ type, token_hash });
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
-    }
-    return NextResponse.redirect(`${origin}/auth/signin?error=otp-verification-failed`);
+    const { error } = await supabase.auth.verifyOtp({ token_hash, type });
+    if (!error) return NextResponse.redirect(`${origin}${next}`);
+    return NextResponse.redirect(`${origin}/login?error=otp_verification_failed`);
   }
 
-  // Handle OAuth code exchange (GitHub, Google, etc.)
   if (code) {
-    const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
-    }
+    if (!error) return NextResponse.redirect(`${origin}${next}`);
   }
 
-  return NextResponse.redirect(`${origin}/auth/signin?error=auth-callback-failed`);
+  return NextResponse.redirect(`${origin}/login?error=auth_callback_failed`);
 }

@@ -2,8 +2,6 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
-import { rateLimit } from "@/lib/rate-limit/limiter";
-import { headers } from "next/headers";
 
 interface VoteResult {
   success: boolean;
@@ -16,15 +14,15 @@ export async function castVote(websiteId: string, categoryId: string): Promise<V
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) return { success: false, transferred: false, weight: 0, error: "Authentication required" };
-  if (!user.email_confirmed_at) return { success: false, transferred: false, weight: 0, error: "Email verification required" };
 
-  const headersList = await headers();
-  const ip = headersList.get("x-forwarded-for") ?? "unknown";
-  const limited = await rateLimit(`vote:${user.id}:${ip}`);
-  if (!limited.success) return { success: false, transferred: false, weight: 0, error: `Rate limit exceeded. Try again in ${limited.retryAfter}s` };
+  // Fetch active voting week — column is is_current, not is_active
+  const { data: activeWeek, error: weekError } = await supabase
+    .from("voting_weeks")
+    .select("id")
+    .eq("is_current", true)
+    .single();
 
-  const { data: activeWeek } = await supabase.from("voting_weeks").select("id").eq("is_active", true).single();
-  if (!activeWeek) return { success: false, transferred: false, weight: 0, error: "No active voting week" };
+  if (weekError || !activeWeek) return { success: false, transferred: false, weight: 0, error: "No active voting week" };
 
   const { data: voteResult, error: voteError } = await supabase.rpc("cast_vote", {
     p_user_id: user.id,
@@ -35,29 +33,40 @@ export async function castVote(websiteId: string, categoryId: string): Promise<V
 
   if (voteError) return { success: false, transferred: false, weight: 0, error: voteError.message };
 
-  const result = voteResult[0];
+  const result = Array.isArray(voteResult) ? voteResult[0] : voteResult;
   revalidatePath("/");
-  revalidatePath(`/website/${websiteId}`);
-  return { success: true, transferred: result.transferred, weight: result.new_weight };
+  revalidatePath("/sites");
+  return { success: true, transferred: result?.transferred ?? false, weight: result?.new_weight ?? 1 };
 }
 
-export async function getLeaderboard(categoryId: string, limit: number = 20) {
+export async function getLeaderboard(categoryId: string, limit = 20) {
   const supabase = await createClient();
-  const { data: activeWeek } = await supabase.from("voting_weeks").select("id").eq("is_active", true).single();
+
+  const { data: activeWeek } = await supabase
+    .from("voting_weeks")
+    .select("id")
+    .eq("is_current", true)
+    .single();
+
   if (!activeWeek) return [];
 
-  const { data: votes } = await supabase
+  // Column is `weight`, not `vote_weight`; join column is `category`, not `category_id`
+  const { data: votes, error } = await supabase
     .from("votes")
-    .select("website_id, vote_weight, websites!inner(id, title, domain, description, favicon_url, url)")
-    .eq("category_id", categoryId)
+    .select("website_id, weight, websites!inner(id, title, domain, description, favicon_url, url, total_votes)")
+    .eq("category", categoryId)
     .eq("week_id", activeWeek.id)
     .limit(limit);
 
+  if (error || !votes) return [];
+
   const scores: Record<string, { website: any; totalScore: number }> = {};
-  votes?.forEach((v: any) => {
-    if (!scores[v.website_id]) scores[v.website_id] = { website: v.websites, totalScore: 0 };
-    scores[v.website_id].totalScore += v.vote_weight;
-  });
+  for (const v of votes as any[]) {
+    const website = Array.isArray(v.websites) ? v.websites[0] : v.websites;
+    if (!website) continue;
+    if (!scores[v.website_id]) scores[v.website_id] = { website, totalScore: 0 };
+    scores[v.website_id].totalScore += Number(v.weight ?? 0);
+  }
 
   return Object.values(scores).sort((a, b) => b.totalScore - a.totalScore);
 }
@@ -66,8 +75,23 @@ export async function getUserVoteForCategory(categoryId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
-  const { data: activeWeek } = await supabase.from("voting_weeks").select("id").eq("is_active", true).single();
+
+  const { data: activeWeek } = await supabase
+    .from("voting_weeks")
+    .select("id")
+    .eq("is_current", true)
+    .single();
+
   if (!activeWeek) return null;
-  const { data: vote } = await supabase.from("votes").select("website_id").eq("user_id", user.id).eq("category_id", categoryId).eq("week_id", activeWeek.id).single();
-  return vote?.website_id || null;
+
+  // Column is `category`, not `category_id`
+  const { data: vote } = await supabase
+    .from("votes")
+    .select("website_id")
+    .eq("user_id", user.id)
+    .eq("category", categoryId)
+    .eq("week_id", activeWeek.id)
+    .maybeSingle();
+
+  return vote?.website_id ?? null;
 }

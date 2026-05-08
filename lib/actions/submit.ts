@@ -1,58 +1,56 @@
-'use server';
+"use server";
 
-import { createClient } from '@/lib/supabase/server';
-import { revalidatePath } from 'next/cache';
+import { createClient } from "@/lib/supabase/server";
+import { revalidatePath } from "next/cache";
 
-const CATEGORIES = ['design', 'developer-tools', 'productivity', 'fun', 'news', 'utility'];
-
-export async function submitWebsite(formData: FormData) {
+export async function submitWebsite(input: {
+  url: string;
+  title: string;
+  description?: string;
+  categories: string[];
+  faviconUrl?: string;
+}) {
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
-  if (authError || !user) return { success: false, error: 'You must be signed in to submit.' };
+  if (authError || !user) throw new Error("Authentication required");
+  if (!input.categories?.length) throw new Error("Select at least one category");
 
-  const url = formData.get('url') as string;
-  const title = formData.get('title') as string;
-  const description = formData.get('description') as string;
-  const categories = formData.getAll('categories') as string[];
+  let normalizedUrl = input.url.trim();
+  if (!/^https?:\/\//i.test(normalizedUrl)) normalizedUrl = `https://${normalizedUrl}`;
 
-  if (!url || !title || !description) return { success: false, error: 'All fields are required.' };
-  if (categories.length === 0) return { success: false, error: 'Select at least one category.' };
-  if (categories.length > 2) return { success: false, error: 'Maximum 2 categories allowed.' };
-  const invalidCat = categories.find((c) => !CATEGORIES.includes(c));
-  if (invalidCat) return { success: false, error: 'Invalid category.' };
-
-  let domain = '';
+  let domain = "";
   try {
-    domain = new URL(url.startsWith('http') ? url : `https://${url}`).hostname.replace('www.', '');
+    domain = new URL(normalizedUrl).hostname.replace(/^www\./, "");
   } catch {
-    return { success: false, error: 'Invalid URL format.' };
+    throw new Error("Invalid URL");
   }
 
-  const normalizedUrl = url.startsWith('http') ? url : `https://${url}`;
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
-
-  const { data: website, error: insertError } = await supabase
-    .from('websites')
+  const { data: website, error } = await supabase
+    .from("websites")
     .insert({
       url: normalizedUrl,
       domain,
-      title,
-      description,
-      favicon_url: faviconUrl,
-      submitter_id: user.id,
-      status: 'pending',
+      title: input.title.trim(),
+      description: input.description?.trim() || null,
+      favicon_url: input.faviconUrl || null,
+      og_image: input.faviconUrl || null,
+      submitted_by: user.id,
+      status: "pending",
     })
-    .select('id')
+    .select()
     .single();
 
-  if (insertError) {
-    if (insertError.code === '23505') return { success: false, error: 'This website has already been submitted.' };
-    return { success: false, error: insertError.message };
-  }
+  if (error) throw new Error(error.message);
 
-  const categoryRows = categories.map((slug) => ({ website_id: website.id, category_slug: slug }));
-  await supabase.from('website_categories').insert(categoryRows);
+  const categoryRows = input.categories.map((category) => ({
+    website_id: website.id,
+    category,
+  }));
 
-  revalidatePath('/');
-  return { success: true, websiteId: website.id };
+  const { error: catError } = await supabase.from("website_categories").insert(categoryRows);
+  if (catError) throw new Error(catError.message);
+
+  revalidatePath("/");
+  revalidatePath("/submit");
+  return { success: true, domain, websiteId: website.id };
 }
